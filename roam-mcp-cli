@@ -1,0 +1,437 @@
+#!/usr/bin/env node
+
+const { execSync, spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
+
+// Colors for terminal output
+const colors = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  green: '\x1b[32m',
+  red: '\x1b[31m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  cyan: '\x1b[36m'
+};
+
+// Server paths
+const SERVER_PATH = path.join(__dirname, 'dist/server-keychain.js');
+const PID_FILE = path.join(__dirname, '.roam-mcp.pid');
+
+// Helper functions
+function isServerRunning() {
+  try {
+    const result = execSync('ps aux | grep "node.*server-keychain" | grep -v grep', { 
+      encoding: 'utf8',
+      stdio: 'pipe' 
+    });
+    return result.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function getServerPID() {
+  try {
+    if (fs.existsSync(PID_FILE)) {
+      const pid = fs.readFileSync(PID_FILE, 'utf8').trim();
+      // Check if process is actually running
+      execSync(`kill -0 ${pid} 2>/dev/null`);
+      return pid;
+    }
+  } catch {
+    // Process not running, clean up PID file
+    if (fs.existsSync(PID_FILE)) {
+      fs.unlinkSync(PID_FILE);
+    }
+  }
+  return null;
+}
+
+function startServer() {
+  console.log(`${colors.yellow}ℹ️  The MCP server runs inside Claude Desktop${colors.reset}`);
+  console.log(`${colors.cyan}It cannot be started as a standalone process${colors.reset}\n`);
+  
+  // Check if dist files exist
+  if (!fs.existsSync(SERVER_PATH)) {
+    console.log(`${colors.red}❌ Server file not found!${colors.reset}`);
+    console.log(`${colors.yellow}Run 'npm run build' first${colors.reset}`);
+    return;
+  }
+  
+  // Check if credentials exist
+  if (!hasCredentials()) {
+    console.log(`${colors.red}❌ No credentials configured${colors.reset}`);
+    console.log(`${colors.yellow}Run './roam-mcp-cli setup' first${colors.reset}`);
+    return;
+  }
+  
+  console.log(`${colors.green}✅ Server is ready to use with Claude Desktop${colors.reset}`);
+  console.log(`\n${colors.bright}Configure Claude Desktop:${colors.reset}`);
+  console.log(`1. Open Claude Desktop settings`);
+  console.log(`2. Go to Developer > Edit Config`);
+  console.log(`3. Add this configuration:\n`);
+  
+  const configPath = path.resolve(SERVER_PATH);
+  console.log(`${colors.cyan}{
+  "mcpServers": {
+    "roam-research": {
+      "command": "node",
+      "args": ["${configPath}"]
+    }
+  }
+}${colors.reset}`);
+  
+  console.log(`\n4. Restart Claude Desktop`);
+  console.log(`5. Ask Claude: "Can you show me stats about my Roam graph?"`);
+}
+
+function stopServer() {
+  console.log(`${colors.yellow}ℹ️  The MCP server runs inside Claude Desktop${colors.reset}`);
+  console.log(`${colors.cyan}To stop it, restart Claude Desktop${colors.reset}`);
+}
+
+function hasCredentials() {
+  try {
+    const configPath = path.join(process.env.HOME || '', '.roam-mcp', 'config.json');
+    return fs.existsSync(configPath);
+  } catch {
+    return false;
+  }
+}
+
+function showStatus() {
+  console.log(`\n${colors.bright}📊 Roam MCP Server Status${colors.reset}`);
+  console.log('━'.repeat(40));
+  
+  if (!hasCredentials()) {
+    console.log(`${colors.yellow}⚠️  No credentials configured${colors.reset}`);
+    console.log(`\n${colors.cyan}Run 'roam-mcp setup' to configure your Roam API credentials${colors.reset}`);
+    console.log('━'.repeat(40));
+    return;
+  }
+  
+  // Check if server files exist
+  if (!fs.existsSync(SERVER_PATH)) {
+    console.log(`${colors.red}● Status: Not built${colors.reset}`);
+    console.log(`\n${colors.yellow}Run 'npm run build' to build the server${colors.reset}`);
+  } else {
+    console.log(`${colors.green}● Status: Ready${colors.reset}`);
+    console.log(`${colors.cyan}  Credentials: Configured${colors.reset}`);
+    console.log(`${colors.cyan}  Security: Keychain protected${colors.reset}`);
+    
+    // Load config to show graph name
+    try {
+      const configPath = path.join(process.env.HOME || '', '.roam-mcp', 'config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      console.log(`${colors.cyan}  Graph: ${config.graphName}${colors.reset}`);
+    } catch {}
+    
+    console.log(`\n${colors.green}✅ Ready to use with Claude Desktop${colors.reset}`);
+    console.log(`\n${colors.dim}The MCP server runs inside Claude Desktop.${colors.reset}`);
+    console.log(`${colors.dim}Use 'roam-mcp start' to see configuration instructions.${colors.reset}`);
+  }
+  
+  console.log('━'.repeat(40));
+}
+
+function showLogs() {
+  console.log(`${colors.bright}📋 Recent Activity${colors.reset}`);
+  console.log('━'.repeat(40));
+  
+  try {
+    // Show recent security logs
+    const logs = execSync('log show --predicate \'subsystem == "com.apple.securityd"\' --last 1m 2>/dev/null | grep -i roam-mcp | head -5', { 
+      encoding: 'utf8',
+      stdio: 'pipe' 
+    });
+    
+    if (logs.trim()) {
+      console.log(logs);
+    } else {
+      console.log('No recent activity');
+    }
+  } catch {
+    console.log('No recent activity');
+  }
+}
+
+function testConnection() {
+  console.log(`${colors.blue}🔍 Testing Roam connection...${colors.reset}\n`);
+  
+  try {
+    // Create inline test
+    const testScript = `
+      const { KeychainConfig } = require('./dist/config-keychain');
+      const { RoamClient } = require('./dist/roam-client');
+      
+      async function test() {
+        try {
+          console.log('Loading configuration...');
+          const config = KeychainConfig.loadConfig();
+          console.log('✅ Config loaded');
+          console.log('   Graph: ' + config.graphName);
+          
+          console.log('\\nInitializing client...');
+          const client = new RoamClient(config);
+          await client.initialize();
+          console.log('✅ Connected successfully!');
+          
+          console.log('\\nRunning test query...');
+          const result = await client.query('[:find (count ?e) :where [?e :node/title]]');
+          if (result && result[0]) {
+            console.log('✅ Your graph contains ' + result[0][0] + ' pages');
+          }
+          
+          console.log('\\n✅ All tests passed!');
+        } catch (error) {
+          console.error('\\n❌ Test failed:', error.message);
+          process.exit(1);
+        }
+      }
+      
+      test();
+    `;
+    
+    execSync(`node -e "${testScript}"`, { 
+      stdio: 'inherit',
+      cwd: __dirname 
+    });
+  } catch (error) {
+    console.log(`\n${colors.red}Connection test failed${colors.reset}`);
+  }
+}
+
+function setupCredentials() {
+  console.log(`${colors.bright}🔐 Roam MCP Setup${colors.reset}`);
+  console.log(`${colors.cyan}Configure your Roam Research API credentials${colors.reset}\n`);
+  
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  rl.question(`${colors.green}Graph name: ${colors.reset}`, (graphName) => {
+    if (!graphName.trim()) {
+      console.log(`${colors.red}❌ Graph name is required${colors.reset}`);
+      rl.close();
+      return;
+    }
+
+    // Hide password input
+    const stdin = process.stdin;
+    const stdout = process.stdout;
+    
+    stdout.write(`${colors.green}API token (hidden): ${colors.reset}`);
+    
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+    
+    let token = '';
+    
+    stdin.on('data', function onData(char) {
+      char = char.toString();
+      
+      switch (char) {
+        case '\n':
+        case '\r':
+        case '\u0004':
+          stdin.removeListener('data', onData);
+          stdin.setRawMode(false);
+          stdin.pause();
+          stdout.write('\n');
+          
+          if (!token.trim()) {
+            console.log(`${colors.red}❌ API token is required${colors.reset}`);
+            rl.close();
+            return;
+          }
+          
+          // Run the setup
+          console.log(`\n${colors.blue}🔄 Storing credentials securely...${colors.reset}`);
+          
+          try {
+            execSync(`node setup-keychain-direct.js "${graphName.trim()}" "${token.trim()}"`, { 
+              stdio: 'inherit',
+              cwd: __dirname 
+            });
+            
+            console.log(`\n${colors.green}✅ Setup complete!${colors.reset}`);
+            console.log(`${colors.cyan}You can now start the server with: roam-mcp start${colors.reset}`);
+          } catch (error) {
+            console.log(`\n${colors.red}❌ Setup failed${colors.reset}`);
+          }
+          
+          rl.close();
+          break;
+          
+        case '\u0003': // Ctrl+C
+          stdin.removeListener('data', onData);
+          stdin.setRawMode(false);
+          stdin.pause();
+          stdout.write('\n');
+          console.log(`${colors.yellow}Setup cancelled${colors.reset}`);
+          rl.close();
+          process.exit();
+          break;
+          
+        case '\u007f': // Backspace
+        case '\b':
+          if (token.length > 0) {
+            token = token.slice(0, -1);
+            stdout.write('\b \b');
+          }
+          break;
+          
+        default:
+          token += char;
+          stdout.write('*');
+          break;
+      }
+    });
+  });
+}
+
+function showHelp() {
+  console.log(`
+${colors.bright}🤖 Roam MCP Server Manager${colors.reset}
+
+${colors.green}Usage:${colors.reset}
+  roam-mcp ${colors.cyan}<command>${colors.reset}
+
+${colors.green}Commands:${colors.reset}
+  ${colors.cyan}setup${colors.reset}    Configure Roam API credentials
+  ${colors.cyan}start${colors.reset}    Show Claude Desktop configuration
+  ${colors.cyan}status${colors.reset}   Show server status
+  ${colors.cyan}test${colors.reset}     Test Roam connection
+  ${colors.cyan}logs${colors.reset}     Show recent activity
+  ${colors.cyan}help${colors.reset}     Show this help message
+
+${colors.green}Interactive Mode:${colors.reset}
+  roam-mcp ${colors.cyan}(no arguments)${colors.reset}
+
+${colors.green}Examples:${colors.reset}
+  roam-mcp setup    # Configure API credentials
+  roam-mcp test     # Test connection to Roam
+  roam-mcp start    # Show Claude Desktop config
+  roam-mcp status   # Check if ready
+
+${colors.yellow}Note:${colors.reset} The MCP server runs inside Claude Desktop,
+not as a standalone process.
+`);
+}
+
+async function interactiveMode() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  function prompt() {
+    showStatus();
+    console.log(`\n${colors.green}Available actions:${colors.reset}`);
+    console.log('  1) Show configuration instructions');
+    console.log('  2) Test connection');
+    console.log('  3) Setup credentials');
+    console.log('  4) Show logs');
+    console.log('  5) Refresh status');
+    console.log('  q) Quit');
+    
+    rl.question(`\n${colors.cyan}Select action: ${colors.reset}`, (answer) => {
+      console.clear();
+      
+      switch(answer.trim()) {
+        case '1':
+          startServer();
+          rl.question('\nPress Enter to continue...', () => {
+            console.clear();
+            prompt();
+          });
+          break;
+        case '2':
+          testConnection();
+          rl.question('\nPress Enter to continue...', () => {
+            console.clear();
+            prompt();
+          });
+          break;
+        case '3':
+          rl.close();
+          setupCredentials();
+          break;
+        case '4':
+          showLogs();
+          rl.question('\nPress Enter to continue...', () => {
+            console.clear();
+            prompt();
+          });
+          break;
+        case '5':
+          console.clear();
+          prompt();
+          break;
+        case 'q':
+        case 'Q':
+          console.log(`\n${colors.green}Goodbye! 👋${colors.reset}`);
+          rl.close();
+          process.exit(0);
+          break;
+        default:
+          console.log(`${colors.red}Invalid option${colors.reset}`);
+          setTimeout(prompt, 1000);
+      }
+    });
+  }
+
+  console.clear();
+  console.log(`${colors.bright}🤖 Roam MCP Server Manager${colors.reset}`);
+  console.log(`${colors.cyan}Interactive Mode${colors.reset}\n`);
+  prompt();
+}
+
+// Main execution
+const command = process.argv[2];
+
+if (!command) {
+  // Interactive mode
+  interactiveMode();
+} else {
+  // Command mode
+  switch(command) {
+    case 'setup':
+      setupCredentials();
+      break;
+    case 'start':
+      startServer();
+      break;
+    case 'stop':
+      stopServer();
+      break;
+    case 'restart':
+      console.log(`${colors.yellow}ℹ️  To restart the MCP server:${colors.reset}`);
+      console.log(`${colors.cyan}Restart Claude Desktop${colors.reset}`);
+      break;
+    case 'status':
+      showStatus();
+      break;
+    case 'test':
+      testConnection();
+      break;
+    case 'logs':
+      showLogs();
+      break;
+    case 'help':
+    case '--help':
+    case '-h':
+      showHelp();
+      break;
+    default:
+      console.log(`${colors.red}Unknown command: ${command}${colors.reset}`);
+      console.log(`Use 'roam-mcp help' for usage information`);
+      process.exit(1);
+  }
+}

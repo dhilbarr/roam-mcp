@@ -1,0 +1,31 @@
+{
+  "name": "roam-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Roam Research integration",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "start:keychain": "node dist/server-keychain.js",
+    "start:secure": "node dist/server-secure.js",
+    "dev": "tsc && node dist/server.js",
+    "dev:keychain": "tsc && node dist/server-keychain.js",
+    "dev:secure": "tsc && node dist/server-secure.js",
+    "watch": "tsc --watch",
+    "setup:keychain": "node dist/setup-keychain.js",
+    "setup:secure": "node dist/setup-secure.js",
+    "clear:credentials": "node -e \"require('./dist/config-keychain').KeychainConfig.clearConfig().catch(console.error)\""
+  },
+  "keywords": ["mcp", "roam-research", "claude"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@roam-research/roam-api-sdk": "^0.10.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  }
+}
