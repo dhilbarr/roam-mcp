@@ -36,26 +36,27 @@ export class SearchTools {
     limit?: number;
   }): Promise<SearchResult[]> {
     const tagName = args.tag.startsWith('#') ? args.tag.substring(1) : args.tag;
-    
+    const escapedTagName = escapeForDatalog(tagName);
+
     let query = `[:find (pull ?b [:block/uid :block/string :create/time :edit/time])
-                  :where [?tag :node/title "${tagName}"]
+                  :where [?tag :node/title "${escapedTagName}"]
                          [?b :block/refs ?tag]`;
-    
+
     if (args.includeChildren) {
       query += ' [?b :block/parents ?parent]';
     }
-    
+
     query += ']';
-    
+
     const results = await this.client.query(query);
     const searchResults = results.map(r => r[0] as SearchResult);
-    
+
     searchResults.sort((a, b) => (b['edit-time'] || 0) - (a['edit-time'] || 0));
-    
+
     if (args.limit) {
       return searchResults.slice(0, args.limit);
     }
-    
+
     return searchResults;
   }
 
@@ -72,38 +73,46 @@ export class SearchTools {
       throw new Error('Either pageTitle or blockUid must be provided');
     }
 
+    // Default includeUnlinked to true if not specified
+    const shouldIncludeUnlinked = args.includeUnlinked !== false;
+
     const linked: SearchResult[] = [];
     const unlinked: SearchResult[] = [];
 
     if (args.pageTitle) {
+      const escapedPageTitle = escapeForDatalog(args.pageTitle);
+
       const linkedQuery = `[:find (pull ?b [:block/uid :block/string :create/time :edit/time])
-                           :where [?page :node/title "${args.pageTitle}"]
+                           :where [?page :node/title "${escapedPageTitle}"]
                                   [?b :block/refs ?page]]`;
-      
+
       const linkedResults = await this.client.query(linkedQuery);
       linked.push(...linkedResults.map(r => r[0] as SearchResult));
 
-      if (args.includeUnlinked !== false) {
+      if (shouldIncludeUnlinked) {
+        // Fixed unlinked query: find blocks containing the page title text but NOT linked to the page
         const unlinkedQuery = `[:find (pull ?b [:block/uid :block/string :create/time :edit/time])
                                :where [?b :block/string ?s]
-                                      [(clojure.string/includes? ?s "${args.pageTitle}")]
-                                      (not [?page :node/title "${args.pageTitle}"]
-                                           [?b :block/refs ?page])]`;
-        
+                                      [(clojure.string/includes? ?s "${escapedPageTitle}")]
+                                      [?page :node/title "${escapedPageTitle}"]
+                                      (not [?b :block/refs ?page])]`;
+
         const unlinkedResults = await this.client.query(unlinkedQuery);
         unlinked.push(...unlinkedResults.map(r => r[0] as SearchResult));
       }
     } else if (args.blockUid) {
+      const escapedBlockUid = escapeForDatalog(args.blockUid);
+
       const linkedQuery = `[:find (pull ?b [:block/uid :block/string :create/time :edit/time])
-                           :where [?ref :block/uid "${args.blockUid}"]
+                           :where [?ref :block/uid "${escapedBlockUid}"]
                                   [?b :block/refs ?ref]]`;
-      
+
       const linkedResults = await this.client.query(linkedQuery);
       linked.push(...linkedResults.map(r => r[0] as SearchResult));
     }
 
     const result: any = { linked };
-    if (args.includeUnlinked !== false && unlinked.length > 0) {
+    if (shouldIncludeUnlinked && unlinked.length > 0) {
       result.unlinked = unlinked;
     }
 

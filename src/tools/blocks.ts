@@ -12,11 +12,11 @@ export class BlockTools {
     viewType?: 'bullet' | 'numbered' | 'document';
   }): Promise<{ uid: string; message: string }> {
     const block: any = { string: args.content };
-    
+
     if (args.heading) {
       block.heading = args.heading;
     }
-    
+
     if (args.viewType) {
       block['view-type'] = args.viewType;
     }
@@ -28,11 +28,16 @@ export class BlockTools {
       order = 0;
     }
 
-    const uid = await this.client.createBlock(args.parentUid, args.content, typeof order === 'number' ? order : undefined);
-    
-    return { 
-      uid, 
-      message: `Block created successfully under parent ${args.parentUid}` 
+    // Pass the full block object with all properties
+    const uid = await this.client.createBlock(
+      args.parentUid,
+      block,
+      typeof order === 'number' ? order : undefined
+    );
+
+    return {
+      uid,
+      message: `Block created successfully under parent ${args.parentUid}`
     };
   }
 
@@ -74,46 +79,31 @@ export class BlockTools {
     newParentUid: string;
     order?: number | 'first' | 'last';
   }): Promise<{ success: boolean; message: string }> {
+    // Verify block exists before attempting to move
     const block = await this.getBlockTree({ uid: args.uid, depth: 0 });
-    
+
     if (!block) {
       throw new Error(`Block ${args.uid} not found`);
     }
 
-    await this.client.deleteBlock(args.uid);
-    
     let order: number | 'last' = 'last';
     if (typeof args.order === 'number') {
       order = args.order;
     } else if (args.order === 'first') {
       order = 0;
     }
-    
-    const newUid = await this.client.createBlock(
-      args.newParentUid, 
-      block.string, 
+
+    // Use the native moveBlock API which preserves UIDs, references, and metadata
+    await this.client.moveBlock(
+      args.uid,
+      args.newParentUid,
       typeof order === 'number' ? order : undefined
     );
 
-    if (block.children && block.children.length > 0) {
-      await this.recreateChildren(newUid, block.children);
-    }
-    
-    return { 
-      success: true, 
-      message: `Block moved successfully to new parent ${args.newParentUid}` 
+    return {
+      success: true,
+      message: `Block moved successfully to new parent ${args.newParentUid}`
     };
-  }
-
-  private async recreateChildren(parentUid: string, children: RoamBlock[]): Promise<void> {
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i];
-      const newChildUid = await this.client.createBlock(parentUid, child.string, i);
-      
-      if (child.children && child.children.length > 0) {
-        await this.recreateChildren(newChildUid, child.children);
-      }
-    }
   }
 
   private buildPullSelector(depth: number): string {

@@ -72,5 +72,23 @@ export function parseRoamDate(dateString: string): Date | null {
 }
 
 export function escapeForDatalog(text: string): string {
-  return text.replace(/"/g, '\\"').replace(/\\/g, '\\\\');
+  // Escape backslashes FIRST, then quotes, to avoid double-escaping
+  return text
+    .replace(/\\/g, '\\\\')  // Escape backslashes first
+    .replace(/"/g, '\\"')     // Then escape quotes
+    .replace(/\n/g, '\\n')    // Escape newlines
+    .replace(/\r/g, '\\r')    // Escape carriage returns
+    .replace(/\[/g, '\\[')    // Escape brackets
+    .replace(/\]/g, '\\]');   // Escape closing brackets
+}
+
+export function validateUid(uid: string): boolean {
+  // Roam UIDs are exactly 9 characters: alphanumeric, underscore, or hyphen
+  return /^[a-zA-Z0-9_-]{9}$/.test(uid);
+}
+
+export function validateDate(dateString: string): boolean {
+  // Validate YYYY-MM-DD format
+  const date = new Date(dateString);
+  return !isNaN(date.getTime()) && /^\d{4}-\d{2}-\d{2}$/.test(dateString);
 }

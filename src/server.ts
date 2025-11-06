@@ -63,7 +63,7 @@ class RoamMCPServer {
   }
 
   private async ensureInitialized() {
-    if (!this.client['api']) {
+    if (!this.client.isInitialized()) {
       await this.client.initialize();
     }
   }

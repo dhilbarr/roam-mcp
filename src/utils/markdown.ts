@@ -11,10 +11,11 @@ export function roamToMarkdown(block: RoamBlock, indent: number = 0): string {
   }
   
   let text = block.string || '';
-  
-  text = text.replace(/\{\{[[TODO]]\}\}/g, '- [ ]');
-  text = text.replace(/\{\{[[DONE]]\}\}/g, '- [x]');
-  
+
+  // Fix regex: escape square brackets properly
+  text = text.replace(/\{\{\[\[TODO\]\]\}\}/g, '- [ ]');
+  text = text.replace(/\{\{\[\[DONE\]\]\}\}/g, '- [x]');
+
   text = text.replace(/\[\[([^\]]+)\]\]/g, '[$1]($1)');
   
   text = text.replace(/\(\(([a-zA-Z0-9_-]{9})\)\)/g, '(($1))');
